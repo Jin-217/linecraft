@@ -52,11 +52,27 @@ import {
   MapPin,
   BarChart2,
   FileText,
-  Image as ImageIcon
+  Image as ImageIcon,
+  ShieldCheck,
+  LogOut,
+  User as UserIcon,
+  Loader2,
+  Mail
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { 
+  auth, 
+  logOut, 
+  syncUserProfile, 
+  UserProfile, 
+  fetchAdminNotifications 
+} from './firebase';
+import { AuthPage } from './components/AuthPage';
+import { AdminPanel } from './components/AdminPanel';
 
 const math = create(all);
 
@@ -291,6 +307,38 @@ function convertCssValueToRgb(val: string): string {
 }
 
 export default function App() {
+  // --- Auth & User State ---
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
+  const [unreadAdminCount, setUnreadAdminCount] = useState(0);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setCurrentUser(user);
+        try {
+          const { profile } = await syncUserProfile(user);
+          setUserProfile(profile);
+
+          if (profile.role === 'admin' || user.email?.toLowerCase() === 'alibertendless999.ko@gmail.com') {
+            const notifs = await fetchAdminNotifications();
+            setUnreadAdminCount(notifs.filter(n => !n.read).length);
+          }
+        } catch (err) {
+          console.error('Failed to sync user profile:', err);
+        }
+      } else {
+        setCurrentUser(null);
+        setUserProfile(null);
+      }
+      setAuthLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
   // --- States ---
   const [functions, setFunctions] = useState<FunctionConfig[]>([
     { id: '1', equation: 'x^2', color: '#3b82f6', visible: true, style: 'solid', strokeWidth: 2.5, showDerivative: false, showTangent: false, tangentPoint: 0, showExtrema: true },
@@ -1399,6 +1447,25 @@ export default function App() {
     setPlacedPins([]);
   };
 
+  // --- Auth Guards ---
+  if (authLoading) {
+    return (
+      <div className="min-h-screen w-full bg-[#090b17] flex flex-col items-center justify-center p-4 text-slate-100 select-none">
+        <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center p-2.5 shadow-lg shadow-indigo-500/20 mb-4 animate-bounce">
+          <img src="icon.svg" alt="Linecraft" className="w-full h-full object-contain" />
+        </div>
+        <div className="flex items-center gap-2 text-xs font-bold text-indigo-300">
+          <Loader2 size={16} className="animate-spin text-indigo-400" />
+          <span>Initializing Linecraft Environment...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return <AuthPage onSuccess={() => {}} />;
+  }
+
   return (
     <div className={`min-h-screen flex flex-col font-sans select-none ${isDarkMode ? 'bg-[#090b17] text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       
@@ -1415,9 +1482,20 @@ export default function App() {
                 linecraft
               </h1>
             </div>
-            <p className={`text-[10px] font-medium tracking-wide ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-              Advanced Function Visualizer
-            </p>
+            <div className="flex flex-col">
+              <p className={`text-[11px] font-medium tracking-wide ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
+                advanced function visualizer created by ALI AMINI
+              </p>
+              <a 
+                href="mailto:alibertendless999.ko@gmail.com"
+                className={`inline-flex items-center gap-1.5 text-xs font-mono font-semibold hover:underline transition-colors mt-0.5 ${
+                  isDarkMode ? 'text-indigo-300 hover:text-indigo-200' : 'text-indigo-600 hover:text-indigo-700'
+                }`}
+              >
+                <Mail size={14} className="shrink-0" />
+                <span>alibertendless999.ko@gmail.com</span>
+              </a>
+            </div>
           </div>
         </div>
 
@@ -1551,6 +1629,44 @@ export default function App() {
                 </motion.div>
               )}
             </AnimatePresence>
+          </div>
+
+          {/* Admin Console Button (for Developer / Admin) */}
+          {(userProfile?.role === 'admin' || currentUser?.email?.toLowerCase() === 'alibertendless999.ko@gmail.com') && (
+            <button
+              onClick={() => setIsAdminPanelOpen(true)}
+              className="relative flex items-center gap-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+              title="Open Admin Console"
+            >
+              <ShieldCheck size={14} className="text-amber-400" />
+              <span className="hidden md:inline">Admin Console</span>
+              {unreadAdminCount > 0 && (
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-ping absolute -top-1 -right-1" />
+              )}
+            </button>
+          )}
+
+          {/* User Profile & Sign Out Badge */}
+          <div className={`flex items-center gap-2 px-2.5 py-1 rounded-xl border text-xs ${
+            isDarkMode ? 'bg-[#161a2e] border-slate-700/80 text-slate-200' : 'bg-slate-100 border-slate-300 text-slate-800'
+          }`}>
+            <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-600 text-white flex items-center justify-center font-bold text-[10px] uppercase shrink-0">
+              {currentUser?.displayName ? currentUser.displayName.charAt(0) : currentUser?.email ? currentUser.email.charAt(0) : 'U'}
+            </div>
+            <div className="hidden lg:flex flex-col text-left leading-tight max-w-[120px] truncate">
+              <span className="font-semibold text-[11px] truncate">{currentUser?.displayName || 'User'}</span>
+              <span className="text-[9px] text-slate-400 truncate">{currentUser?.email}</span>
+            </div>
+            <button
+              onClick={async () => {
+                await logOut();
+                showToast("Signed out successfully");
+              }}
+              className="p-1 hover:text-red-400 text-slate-400 transition-colors ml-1"
+              title="Sign Out"
+            >
+              <LogOut size={14} />
+            </button>
           </div>
         </div>
       </header>
@@ -3240,6 +3356,14 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Admin Panel Modal */}
+      <AdminPanel
+        isOpen={isAdminPanelOpen}
+        onClose={() => setIsAdminPanelOpen(false)}
+        isDarkMode={isDarkMode}
+        currentUserEmail={currentUser?.email || ''}
+      />
     </div>
   );
 }
